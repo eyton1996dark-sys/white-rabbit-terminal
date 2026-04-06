@@ -17,14 +17,15 @@ DB_PATH = os.path.join(BASE_DIR, "harutyun_db.sqlite")
 
 # --- НАСТРОЙКИ ПОЧТЫ ---
 SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587  # Меняем на 587 для обхода блокировок
+SMTP_PORT = 587  # Порт 587 чаще открыт на облачных серверах
 SENDER_EMAIL = "harut.hayrapetyan2001@gmail.com"
-# Берем пароль из окружения Render, если его нет - используем резервный
+# Пытаемся взять пароль из настроек Render, если нет - берем старый (для теста)
 SENDER_PASSWORD = os.getenv("GMAIL_PASS", "kltaaigwbxmjbovr")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    # Таблица пользователей
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,14 +33,11 @@ def init_db():
             username TEXT UNIQUE NOT NULL,
             phone TEXT,
             dob TEXT,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            avatar TEXT
         )
     ''')
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN avatar TEXT")
-    except sqlite3.OperationalError:
-        pass
-
+    # Таблица временных кодов
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pending_users (
             email TEXT PRIMARY KEY,
@@ -50,13 +48,16 @@ def init_db():
             code TEXT NOT NULL
         )
     ''')
+    # Таблица сообщений и контактов
     cursor.execute('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT, receiver TEXT, content TEXT, timestamp TEXT)')
     cursor.execute('CREATE TABLE IF NOT EXISTS contacts (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, contact_name TEXT, UNIQUE(owner, contact_name))')
     conn.commit()
     conn.close()
 
+# Инициализируем базу при запуске
 init_db()
 
+# --- МОДЕЛИ ДАННЫХ ---
 class UserRegister(BaseModel):
     email: str
     username: str
@@ -77,6 +78,7 @@ class AvatarUpdate(BaseModel):
     username: str
     avatar_base64: str
 
+# --- ФУНКЦИИ ---
 def send_verification_email(to_email: str, code: str):
     try:
         msg = MIMEText(f"Ваш код для регистрации в White Rabbit: {code}")
@@ -84,13 +86,12 @@ def send_verification_email(to_email: str, code: str):
         msg['From'] = SENDER_EMAIL
         msg['To'] = to_email
         
-        # Используем STARTTLS и порт 587
+        # Используем STARTTLS на порту 587
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.set_debuglevel(1) # Для отладки в логах Render
-            server.starttls()
+            server.starttls() 
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
-        print(f"Код успешно отправлен на {to_email}")
+        print(f"Код {code} успешно отправлен на {to_email}")
     except Exception as e:
         print(f"Ошибка почты: {e}")
 
@@ -113,6 +114,7 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
     conn.commit()
     conn.close()
     
+    # Отправляем письмо в фоновом режиме
     background_tasks.add_task(send_verification_email, user.email, code)
     return {"message": "Код отправлен!"}
 
@@ -123,6 +125,7 @@ async def verify(data: VerifyCode):
     cursor = conn.cursor()
     cursor.execute("SELECT username, phone, dob, password, code FROM pending_users WHERE email=?", (data.email,))
     row = cursor.fetchone()
+    
     if not row or data.code != row[4]:
         conn.close()
         raise HTTPException(status_code=400, detail="Неверный код!")
@@ -135,7 +138,8 @@ async def verify(data: VerifyCode):
     except sqlite3.IntegrityError:
         conn.close()
         raise HTTPException(status_code=400, detail="Ошибка базы.")
-    conn.close()
+    finally:
+        conn.close()
     return {"message": "Успех!"}
 
 @app.post("/login")
@@ -184,8 +188,6 @@ async def add_contact(owner: str, contact: str):
     try:
         conn.execute("INSERT OR IGNORE INTO contacts (owner, contact_name) VALUES (?, ?)", (owner, contact))
         conn.commit()
-    except Exception as e:
-        print("Ошибка добавления контакта:", e)
     finally:
         conn.close()
     return {"ok": True}
