@@ -5,20 +5,27 @@ import sqlite3
 import json
 import smtplib
 import random
+import os
 from email.mime.text import MIMEText
 from datetime import datetime
 
 app = FastAPI()
 
+# --- НАСТРОЙКИ ПУТЕЙ (Решает проблему "no such table") ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "harutyun_db.sqlite")
+
+# --- НАСТРОЙКИ ПОЧТЫ ---
 SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 465
+SMTP_PORT = 587  # Порт 587 чаще открыт на облачных серверах
 SENDER_EMAIL = "harut.hayrapetyan2001@gmail.com"
-SENDER_PASSWORD = "kltaaigwbxmjbovr"
+# Пытаемся взять пароль из настроек Render, если нет - берем старый (для теста)
+SENDER_PASSWORD = os.getenv("GMAIL_PASS", "kltaaigwbxmjbovr")
 
 def init_db():
-    conn = sqlite3.connect("harutyun_db.sqlite")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # Создаем таблицы, если их нет
+    # Таблица пользователей
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,15 +33,11 @@ def init_db():
             username TEXT UNIQUE NOT NULL,
             phone TEXT,
             dob TEXT,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            avatar TEXT
         )
     ''')
-    # БЕЗОПАСНО ДОБАВЛЯЕМ КОЛОНКУ avatar ДЛЯ СТАРЫХ БАЗ ДАННЫХ
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN avatar TEXT")
-    except sqlite3.OperationalError:
-        pass # Колонка уже существует, все ок
-
+    # Таблица временных кодов
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pending_users (
             email TEXT PRIMARY KEY,
@@ -45,13 +48,16 @@ def init_db():
             code TEXT NOT NULL
         )
     ''')
+    # Таблица сообщений и контактов
     cursor.execute('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT, receiver TEXT, content TEXT, timestamp TEXT)')
     cursor.execute('CREATE TABLE IF NOT EXISTS contacts (id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, contact_name TEXT, UNIQUE(owner, contact_name))')
     conn.commit()
     conn.close()
 
+# Инициализируем базу при запуске
 init_db()
 
+# --- МОДЕЛИ ДАННЫХ ---
 class UserRegister(BaseModel):
     email: str
     username: str
@@ -72,15 +78,20 @@ class AvatarUpdate(BaseModel):
     username: str
     avatar_base64: str
 
+# --- ФУНКЦИИ ---
 def send_verification_email(to_email: str, code: str):
     try:
-        msg = MIMEText(f"Ваш код для регистрации: {code}")
+        msg = MIMEText(f"Ваш код для регистрации в White Rabbit: {code}")
         msg['Subject'] = 'Код подтверждения'
         msg['From'] = SENDER_EMAIL
         msg['To'] = to_email
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+        
+        # Используем STARTTLS на порту 587
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls() 
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
+        print(f"Код {code} успешно отправлен на {to_email}")
     except Exception as e:
         print(f"Ошибка почты: {e}")
 
@@ -90,7 +101,7 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
     if user.password != user.password_confirm:
         raise HTTPException(status_code=400, detail="Пароли не совпадают!")
     
-    conn = sqlite3.connect("harutyun_db.sqlite")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT email FROM users WHERE email=? OR username=?", (user.email, user.username))
     if cursor.fetchone():
@@ -102,16 +113,19 @@ async def register(user: UserRegister, background_tasks: BackgroundTasks):
                    (user.email, user.username, user.phone, user.dob, user.password, code))
     conn.commit()
     conn.close()
+    
+    # Отправляем письмо в фоновом режиме
     background_tasks.add_task(send_verification_email, user.email, code)
     return {"message": "Код отправлен!"}
 
 @app.post("/verify")
 async def verify(data: VerifyCode):
     data.email = data.email.lower().strip()
-    conn = sqlite3.connect("harutyun_db.sqlite")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT username, phone, dob, password, code FROM pending_users WHERE email=?", (data.email,))
     row = cursor.fetchone()
+    
     if not row or data.code != row[4]:
         conn.close()
         raise HTTPException(status_code=400, detail="Неверный код!")
@@ -124,13 +138,14 @@ async def verify(data: VerifyCode):
     except sqlite3.IntegrityError:
         conn.close()
         raise HTTPException(status_code=400, detail="Ошибка базы.")
-    conn.close()
+    finally:
+        conn.close()
     return {"message": "Успех!"}
 
 @app.post("/login")
 async def login(user: UserLogin):
     user.email = user.email.lower().strip()
-    conn = sqlite3.connect("harutyun_db.sqlite")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT username FROM users WHERE email=? AND password=?", (user.email, user.password))
     row = cursor.fetchone()
@@ -140,7 +155,7 @@ async def login(user: UserLogin):
 
 @app.get("/get_profile/{username}")
 async def get_profile(username: str):
-    conn = sqlite3.connect("harutyun_db.sqlite")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT username, email, phone, dob, avatar FROM users WHERE username=?", (username,))
     row = cursor.fetchone()
@@ -151,7 +166,7 @@ async def get_profile(username: str):
 
 @app.post("/update_avatar")
 async def update_avatar(data: AvatarUpdate):
-    conn = sqlite3.connect("harutyun_db.sqlite")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute("UPDATE users SET avatar=? WHERE username=?", (data.avatar_base64, data.username))
     conn.commit()
     conn.close()
@@ -160,7 +175,7 @@ async def update_avatar(data: AvatarUpdate):
 @app.get("/search")
 async def search(q: str):
     if not q: return []
-    conn = sqlite3.connect("harutyun_db.sqlite")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT username, avatar FROM users WHERE LOWER(username) LIKE LOWER(?) LIMIT 10", (f"%{q}%",))
     users = [{"username": r[0], "avatar": r[1]} for r in cursor.fetchall()]
@@ -169,19 +184,17 @@ async def search(q: str):
 
 @app.post("/add_contact")
 async def add_contact(owner: str, contact: str):
-    conn = sqlite3.connect("harutyun_db.sqlite")
+    conn = sqlite3.connect(DB_PATH)
     try:
-        conn.execute("INSERT INTO contacts (owner, contact_name) VALUES (?, ?)", (owner, contact))
+        conn.execute("INSERT OR IGNORE INTO contacts (owner, contact_name) VALUES (?, ?)", (owner, contact))
         conn.commit()
-    except Exception as e:
-        print("Ошибка добавления контакта:", e)
     finally:
         conn.close()
     return {"ok": True}
 
 @app.get("/get_contacts/{username}")
 async def get_contacts(username: str):
-    conn = sqlite3.connect("harutyun_db.sqlite")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
         SELECT u.username, u.avatar 
@@ -195,7 +208,7 @@ async def get_contacts(username: str):
 
 @app.get("/history/{u1}/{u2}")
 async def get_history(u1: str, u2: str):
-    conn = sqlite3.connect("harutyun_db.sqlite")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT sender, content, timestamp FROM messages WHERE (sender=? AND receiver=?) OR (sender=? AND receiver=?)", (u1, u2, u2, u1))
     res = [{"sender": r[0], "text": r[1], "time": r[2]} for r in cursor.fetchall()]
@@ -230,7 +243,7 @@ async def websocket_endpoint(websocket: WebSocket, username: str):
             text = msg.get("text")
             if dest and text:
                 time = datetime.now().strftime("%H:%M")
-                conn = sqlite3.connect("harutyun_db.sqlite")
+                conn = sqlite3.connect(DB_PATH)
                 conn.execute("INSERT INTO messages (sender, receiver, content, timestamp) VALUES (?, ?, ?, ?)", (username, dest, text, time))
                 conn.commit()
                 conn.close()
