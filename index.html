@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>White Rabbit Terminal</title>
+    <style>
+        /* MATRIX TERMINAL THEME (SOFT) */
+        :root {
+            --primary: #00cc66; /* Мягкий изумрудно-зеленый */
+            --dark-green: #004422;
+            --bg-color: #050505;
+            --panel-bg: #0a0a0a;
+        }
+
+        body { 
+            font-family: 'Courier New', Courier, monospace; 
+            background-color: var(--bg-color); 
+            color: var(--primary); 
+            display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; 
+            background-image: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 204, 102, 0.03) 3px);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-color); border-left: 1px solid var(--dark-green); }
+        ::-webkit-scrollbar-thumb { background: var(--dark-green); }
+        ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+        .card { 
+            background: var(--panel-bg); padding: 25px; 
+            border: 1px solid var(--primary); 
+            box-shadow: 0 0 10px rgba(0, 204, 102, 0.1); 
+            width: 350px; text-align: center; 
+        }
+        
+        h2, h3 { text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 3px var(--primary); margin-top: 0; }
+        a { color: var(--primary); text-decoration: none; border-bottom: 1px dashed var(--primary); }
+        a:hover { background: var(--primary); color: #000; }
+        p { font-size: 14px; }
+
+        .hidden { display: none !important; }
+        
+        input { 
+            width: 100%; padding: 10px; margin: 8px 0; 
+            background: #000; color: var(--primary); 
+            border: 1px solid var(--dark-green); 
+            box-sizing: border-box; font-family: 'Courier New', Courier, monospace; outline: none; 
+        }
+        input:focus { border-color: var(--primary); box-shadow: 0 0 5px rgba(0, 204, 102, 0.3); }
+        input::placeholder { color: #006633; }
+
+        button { 
+            width: 100%; padding: 10px; 
+            background: transparent; color: var(--primary); 
+            border: 1px solid var(--primary); 
+            cursor: pointer; margin-top: 10px; 
+            font-family: 'Courier New', Courier, monospace; text-transform: uppercase; font-weight: bold; transition: 0.2s;
+        }
+        button:hover { background: var(--primary); color: #000; box-shadow: 0 0 8px var(--primary); }
+        
+        /* CHAT LAYOUT */
+        #chat-card { 
+            width: 950px; height: 650px; display: flex; flex-direction: column; padding: 0; 
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+        }
+        #chat-layout { display: flex; flex: 1; overflow: hidden; }
+        
+        #sidebar { width: 280px; border-right: 1px solid var(--primary); display: flex; flex-direction: column; background: #030303; }
+        
+        .user-bar { padding: 15px; border-bottom: 1px solid var(--primary); display: flex; align-items: center; gap: 10px; cursor: pointer; transition: 0.2s; }
+        .user-bar:hover { background: #001a0d; }
+        
+        /* Аватарки (БЕЗ фильтра, оригинальные цвета!) */
+        .avatar-circle, .avatar-small, .big-avatar { 
+            object-fit: cover; background: #0a0a0a; border: 1px solid var(--primary); flex-shrink: 0;
+        }
+        .avatar-circle { width: 40px; height: 40px; border-radius: 4px; } /* Слегка квадратные */
+        .avatar-small { width: 30px; height: 30px; border-radius: 4px; }
+        .big-avatar { width: 100px; height: 100px; border-radius: 4px; margin-bottom: 15px; border: 2px solid var(--primary); }
+        
+        #chat-area { flex: 1; display: flex; flex-direction: column; background: var(--bg-color); }
+        #messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+        
+        .msg { 
+            max-width: 70%; padding: 8px 12px; font-size: 14px; word-wrap: break-word; 
+            border: 1px solid; border-radius: 0; background: rgba(0, 15, 5, 0.8);
+        }
+        .my-msg { align-self: flex-end; border-color: var(--primary); color: var(--primary); border-left: 4px solid var(--primary); }
+        .other-msg { align-self: flex-start; border-color: #007744; color: #00aa66; border-right: 4px solid #007744; }
+        
+        .contact-item { padding: 10px 15px; border-bottom: 1px solid var(--dark-green); cursor: pointer; display: flex; align-items: center; gap: 12px; transition: 0.1s; }
+        .contact-item:hover { background: #001a0d; border-left: 3px solid var(--primary); }
+        
+        .search-item { display: flex; align-items: center; justify-content: space-between; padding: 8px; border-bottom: 1px dashed var(--dark-green); margin-bottom: 4px; }
+        .search-add-btn { width: auto; padding: 5px 10px; margin: 0; font-size: 12px; }
+        
+        #profile-overlay { position: fixed; top:0; left:0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .profile-modal { background: var(--panel-bg); border: 1px solid var(--primary); box-shadow: 0 0 15px var(--primary); padding: 30px; width: 300px; text-align: center; }
+
+        .system-title { background: var(--primary); color: #000; padding: 5px; font-size: 12px; font-weight: bold; text-align: center; text-transform: uppercase; }
+        .sys-danger { border-color: #cc3333 !important; color: #cc3333 !important; }
+        .sys-danger:hover { background: #cc3333 !important; color: #000 !important; box-shadow: 0 0 10px #cc3333 !important; }
+    </style>
+</head>
+<body>
+
+    <!-- ВХОД -->
+    <div id="login-card" class="card hidden">
+        <h2>WHITE RABBIT</h2>
+        <p style="color:#007744; font-size:12px">> ENTER CREDENTIALS</p>
+        <input id="l-email" type="email" placeholder="SYS_EMAIL">
+        <input id="l-pass" type="password" placeholder="SYS_PASSWORD">
+        <button onclick="doLogin()">INITIALIZE</button>
+        <p>SYSTEM UNKNOWN? <a href="#" onclick="showReg()">CREATE_NODE</a></p>
+    </div>
+
+    <!-- РЕГИСТРАЦИЯ -->
+    <div id="reg-card" class="card hidden">
+        <h2>CREATE_NODE</h2>
+        <input id="r-email" type="email" placeholder="EMAIL">
+        <input id="r-user" type="text" placeholder="ALIAS (NICKNAME)">
+        <input id="r-phone" type="text" placeholder="PHONE_LINK">
+        <input id="r-dob" type="date" style="color: #007744;">
+        <input id="r-pass" type="password" placeholder="PASSWORD">
+        <input id="r-confirm" type="password" placeholder="CONFIRM_PASSWORD">
+        <button onclick="doRegister()">REQUEST_CODE</button>
+        <button style="border-color:#555; color:#555;" onclick="showLogin()">ABORT</button>
+    </div>
+
+    <!-- ВЕРИФИКАЦИЯ -->
+    <div id="verify-card" class="card hidden">
+        <h2>VERIFY_LINK</h2>
+        <p style="color:#007744; font-size:12px">> AWAITING 6-DIGIT TRANSMISSION</p>
+        <input id="v-code" type="text" placeholder="XXXXXX">
+        <button onclick="doVerify()">CONFIRM_CODE</button>
+    </div>
+
+    <!-- ЧАТ ТЕРМИНАЛ -->
+    <div id="chat-card" class="card hidden">
+        <div id="chat-layout">
+            <div id="sidebar">
+                <div class="user-bar" onclick="showProfile()">
+                    <img id="my-avatar-img" class="avatar-circle">
+                    <div id="my-name-display" style="font-weight:bold; font-size: 16px;">ROOT_USER</div>
+                </div>
+                <div style="padding:10px; border-bottom: 1px solid var(--dark-green);">
+                    <input id="search-input" placeholder="> SEARCH_TARGET..." oninput="doSearch()" style="margin:0">
+                    <div id="search-results" style="margin-top:10px"></div>
+                </div>
+                <div class="system-title">ACTIVE_NODES</div>
+                <div id="my-contacts" style="overflow-y:auto; flex:1"></div>
+                <button class="sys-danger" onclick="doLogout()" style="border-radius:0; padding:12px; margin:0; border-top: 1px solid; border-left:none; border-right:none; border-bottom:none;">TERMINATE_SESSION</button>
+            </div>
+            <div id="chat-area">
+                <div id="chat-header" style="padding:15px; border-bottom:1px solid var(--primary); font-weight:bold; font-size: 18px; text-transform: uppercase;">> AWAITING_TARGET...</div>
+                <div id="messages"></div>
+                <div style="padding:15px; display:flex; gap:10px; border-top:1px solid var(--primary);">
+                    <input id="msg-input" placeholder="> execute_message..." style="margin:0">
+                    <button id="send-btn" style="width:80px; margin:0;" onclick="sendMsg()">SEND</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ПРОФИЛЬ -->
+    <div id="profile-overlay" class="hidden">
+        <div class="profile-modal">
+            <h3>NODE_DATA</h3>
+            <img id="p-avatar" class="big-avatar">
+            <input type="file" id="p-file" accept="image/*" style="font-size:11px; margin-bottom:10px; color: var(--primary)">
+            <button onclick="uploadAvatar()" style="font-size:12px;">UPDATE_VISUALS</button>
+            <div id="p-info" style="text-align:left; font-size:14px; margin-top:20px; line-height:1.8; color: var(--primary);"></div>
+            <button class="sys-danger" onclick="hideProfile()" style="margin-top:20px;">CLOSE_PANEL</button>
+        </div>
+    </div>
+
+    <script>
+        // Стандартная аватарка (менее кислотная)
+        const DEFAULT_AVATAR = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzAwY2M2NiI+PHBhdGggZD0iTTEyIDEyYzIuMjEgMCA0LTEuNzkgNC00cy0xLjc5LTQtNC00LTQgMS43OS00IDQgMS43OSA0IDQgNHptMCAyYy0yLjY3IDAtOCAxLjM0LTggNHYyaDE2di0yYzAtMi42Ni01LjMzLTQtOC00eiIvPjwvc3ZnPg==';
+
+        function getSafeAvatar(avatarStr) {
+            if (avatarStr && avatarStr.includes('base64,')) return avatarStr;
+            return DEFAULT_AVATAR;
+        }
+
+        let myName = "";
+        let currentChat = "";
+        let ws = null;
+        let regEmail = "";
+
+        // ПРОВЕРКА СОХРАНЕННОЙ СЕССИИ ПРИ ЗАГРУЗКЕ
+        window.onload = () => {
+            const savedUser = localStorage.getItem('wr_session');
+            if (savedUser) {
+                myName = savedUser;
+                startChat();
+            } else {
+                showLogin();
+            }
+        };
+
+        function hideAll() {
+            ['login-card', 'reg-card', 'verify-card', 'chat-card', 'profile-overlay'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+        }
+
+        function showLogin() { hideAll(); document.getElementById('login-card').classList.remove('hidden'); }
+        function showReg() { hideAll(); document.getElementById('reg-card').classList.remove('hidden'); }
+        
+        async function doRegister() {
+            regEmail = document.getElementById('r-email').value;
+            const body = {
+                email: regEmail, username: document.getElementById('r-user').value,
+                phone: document.getElementById('r-phone').value, dob: document.getElementById('r-dob').value,
+                password: document.getElementById('r-pass').value, password_confirm: document.getElementById('r-confirm').value
+            };
+            const res = await fetch('/register', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+            if(res.ok) { hideAll(); document.getElementById('verify-card').classList.remove('hidden'); } 
+            else { const d = await res.json(); alert("SYS_ERROR: " + d.detail); }
+        }
+
+        async function doVerify() {
+            const code = document.getElementById('v-code').value;
+            const res = await fetch('/verify', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email:regEmail, code:code})});
+            if(res.ok) { alert("LINK_ESTABLISHED!"); showLogin(); } else { alert("ACCESS_DENIED: Invalid code"); }
+        }
+
+        async function doLogin() {
+            const email = document.getElementById('l-email').value;
+            const pass = document.getElementById('l-pass').value;
+            const res = await fetch('/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email:email, password:pass})});
+            if(res.ok) {
+                const data = await res.json();
+                myName = data.username;
+                localStorage.setItem('wr_session', myName);
+                startChat();
+            } else { alert("ACCESS_DENIED: Credentials rejected."); }
+        }
+
+        function doLogout() {
+            if(ws) ws.close();
+            myName = "";
+            currentChat = "";
+            localStorage.removeItem('wr_session');
+            document.getElementById('messages').innerHTML = "";
+            document.getElementById('my-contacts').innerHTML = "";
+            document.getElementById('chat-header').innerText = "> AWAITING_TARGET...";
+            showLogin();
+        }
+
+        async function startChat() {
+            hideAll();
+            document.getElementById('chat-card').classList.remove('hidden');
+            document.getElementById('my-name-display').innerText = "> " + myName;
+            
+            const res = await fetch(`/get_profile/${myName}`);
+            if(!res.ok) { doLogout(); return; }
+            
+            const profile = await res.json();
+            document.getElementById('my-avatar-img').src = getSafeAvatar(profile.avatar);
+
+            const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+            ws = new WebSocket(`${protocol}://${location.host}/ws/${myName}`);
+            ws.onmessage = (e) => {
+                const m = JSON.parse(e.data);
+                if(m.from === currentChat || m.from === myName) renderMessage(m);
+            };
+            loadContacts();
+        }
+
+        async function showProfile() {
+            const res = await fetch(`/get_profile/${myName}`);
+            const p = await res.json();
+            document.getElementById('p-avatar').src = getSafeAvatar(p.avatar);
+            document.getElementById('p-info').innerHTML = `
+                > ALIAS: <b>${p.username}</b><br>
+                > EMAIL: <b>${p.email}</b><br>
+                > PHONE: <b>${p.phone}</b><br>
+                > B_DAY: <b>${p.dob}</b>
+            `;
+            document.getElementById('profile-overlay').classList.remove('hidden');
+        }
+
+        function hideProfile() { document.getElementById('profile-overlay').classList.add('hidden'); }
+
+        async function uploadAvatar() {
+            const file = document.getElementById('p-file').files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                const base64String = reader.result;
+                await fetch('/update_avatar', {
+                    method:'POST', 
+                    headers:{'Content-Type':'application/json'}, 
+                    body:JSON.stringify({username: myName, avatar_base64: base64String})
+                });
+                document.getElementById('p-avatar').src = base64String;
+                document.getElementById('my-avatar-img').src = base64String;
+                alert("VISUALS_UPDATED!");
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function doSearch() {
+            const q = document.getElementById('search-input').value;
+            const div = document.getElementById('search-results');
+            if(q.length < 1) { div.innerHTML = ""; return; }
+            
+            const res = await fetch(`/search?q=${q}`);
+            const users = await res.json();
+            div.innerHTML = "";
+            
+            users.forEach(u => {
+                if(u.username !== myName) {
+                    const d = document.createElement('div');
+                    d.className = 'search-item';
+                    const img = getSafeAvatar(u.avatar);
+                    
+                    d.innerHTML = `
+                        <div style="display:flex; align-items:center; gap:8px">
+                            <img src="${img}" class="avatar-small">
+                            <span style="font-size:14px; font-weight:bold">${u.username}</span>
+                        </div>
+                        <button class="search-add-btn" onclick="addContact('${u.username}')">LINK</button>
+                    `;
+                    div.appendChild(d);
+                }
+            });
+        }
+
+        async function addContact(u) {
+            await fetch(`/add_contact?owner=${myName}&contact=${u}`, {method:'POST'});
+            document.getElementById('search-input').value = "";
+            document.getElementById('search-results').innerHTML = "";
+            loadContacts();
+        }
+
+        async function loadContacts() {
+            const res = await fetch(`/get_contacts/${myName}`);
+            const contacts = await res.json();
+            const div = document.getElementById('my-contacts');
+            div.innerHTML = "";
+            contacts.forEach(c => {
+                const d = document.createElement('div');
+                d.className = "contact-item";
+                const img = getSafeAvatar(c.avatar);
+                d.innerHTML = `<img src="${img}" class="avatar-circle"> <span style="font-weight:bold; font-size:15px">${c.username}</span>`;
+                d.onclick = () => openChat(c.username);
+                div.appendChild(d);
+            });
+        }
+
+        async function openChat(u) {
+            currentChat = u;
+            document.getElementById('chat-header').innerText = "> LINKED_TO: " + u;
+            document.getElementById('messages').innerHTML = "";
+            const res = await fetch(`/history/${myName}/${u}`);
+            const history = await res.json();
+            history.forEach(m => renderMessage({from: m.sender, text: m.text, timestamp: m.time}));
+        }
+
+        function renderMessage(m) {
+            const box = document.getElementById('messages');
+            const d = document.createElement('div');
+            const isMine = m.from === myName;
+            d.className = `msg ${isMine ? 'my-msg' : 'other-msg'}`;
+            d.innerHTML = `<b>> ${m.from}</b><br>${m.text}<br><small style="font-size:10px; opacity:0.5; display:block; text-align:right; margin-top:4px">[${m.timestamp || ''}]</small>`;
+            box.appendChild(d);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function sendMsg() {
+            const inp = document.getElementById('msg-input');
+            const txt = inp.value.trim();
+            if(!currentChat || !txt) return;
+            ws.send(JSON.stringify({to: currentChat, text: txt}));
+            inp.value = "";
+        }
+
+        document.getElementById('msg-input').addEventListener('keypress', (e) => {
+            if(e.key === 'Enter') sendMsg();
+        });
+    </script>
+</body>
+</html>
